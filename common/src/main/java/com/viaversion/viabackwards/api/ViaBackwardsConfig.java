@@ -72,6 +72,13 @@ public interface ViaBackwardsConfig extends Config {
     boolean bedrockAtY0();
 
     /**
+     * Returns the server Y coordinate that is shown at Y=0 to 1.16 clients and older.
+     *
+     * @return the server world base Y coordinate
+     */
+    int worldBase1_16();
+
+    /**
      * Shows sculk shriekers as crying obsidian for 1.18.2 clients on 1.19+ servers. This fixes collision and block breaking issues.
      *
      * @return true if enabled

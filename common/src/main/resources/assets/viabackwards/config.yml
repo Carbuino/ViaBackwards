@@ -27,6 +27,9 @@ handle-pings-as-inv-acknowledgements: false
 #
 # Adds bedrock blocks at y=0 for sub 1.17 clients. This may allow for weird interactions due to sending fake blocks.
 bedrock-at-y-0: false
+# Server Y coordinate shown to 1.16 clients and older at client Y=0. Must be a multiple of 16.
+# For example, -64 makes client Y=0 represent server Y=-64 and client Y=255 represent server Y=191.
+1.16-world-base: 0
 #
 # Shows sculk shriekers as crying obsidian for 1.18.2 clients on 1.19+ servers. This fixes collision and block breaking issues.
 # If disabled, the client will see them as end portal frames.

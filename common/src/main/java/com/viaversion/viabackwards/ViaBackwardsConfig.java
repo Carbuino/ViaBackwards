@@ -38,6 +38,7 @@ public class ViaBackwardsConfig extends Config implements com.viaversion.viaback
     private boolean fix1_13FormattedInventoryTitles;
     private boolean handlePingsAsInvAcknowledgements;
     private boolean bedrockAtY0;
+    private int worldBase1_16;
     private boolean sculkShriekersToCryingObsidian;
     private boolean scaffoldingToWater;
     private boolean mapDarknessEffect;
@@ -67,6 +68,11 @@ public class ViaBackwardsConfig extends Config implements com.viaversion.viaback
         alwaysShowOriginalMobName = getBoolean("always-show-original-mob-name", true);
         handlePingsAsInvAcknowledgements = getBoolean("handle-pings-as-inv-acknowledgements", false);
         bedrockAtY0 = getBoolean("bedrock-at-y-0", false);
+        worldBase1_16 = getInt("1.16-world-base", 0);
+        if (Math.floorMod(worldBase1_16, 16) != 0) {
+            logger.warning("The 1.16-world-base value must be a multiple of 16; ignoring the configured value.");
+            worldBase1_16 = 0;
+        }
         sculkShriekersToCryingObsidian = getBoolean("sculk-shriekers-to-crying-obsidian", false);
         scaffoldingToWater = getBoolean("scaffolding-to-water", false);
         mapDarknessEffect = getBoolean("map-darkness-effect", true);
@@ -134,6 +140,11 @@ public class ViaBackwardsConfig extends Config implements com.viaversion.viaback
     @Override
     public boolean bedrockAtY0() {
         return bedrockAtY0;
+    }
+
+    @Override
+    public int worldBase1_16() {
+        return worldBase1_16;
     }
 
     @Override

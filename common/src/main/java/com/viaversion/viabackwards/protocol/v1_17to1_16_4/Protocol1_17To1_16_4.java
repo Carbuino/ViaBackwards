@@ -23,6 +23,7 @@ import com.viaversion.viabackwards.api.data.BackwardsMappingData;
 import com.viaversion.viabackwards.api.rewriters.text.JsonNBTComponentRewriter;
 import com.viaversion.viabackwards.protocol.v1_17to1_16_4.rewriter.BlockItemPacketRewriter1_17;
 import com.viaversion.viabackwards.protocol.v1_17to1_16_4.rewriter.EntityPacketRewriter1_17;
+import com.viaversion.viabackwards.protocol.v1_17to1_16_4.rewriter.WorldHeightRewriter1_17;
 import com.viaversion.viabackwards.protocol.v1_17to1_16_4.storage.PlayerLastCursorItem;
 import com.viaversion.viabackwards.protocol.v1_17to1_16_4.storage.ProtocolStorables1_17;
 import com.viaversion.viaversion.connection.ProtocolStorablesBase;
@@ -136,6 +137,8 @@ public final class Protocol1_17To1_16_4 extends BackwardsProtocol<ClientboundPac
                 map(Types.FLOAT); // Z
                 map(Types.FLOAT); // Strength
                 handler(wrapper -> {
+                    wrapper.set(Types.FLOAT, 1,
+                        wrapper.get(Types.FLOAT, 1) - WorldHeightRewriter1_17.worldBaseY());
                     wrapper.write(Types.INT, wrapper.read(Types.VAR_INT)); // Collection length
                 });
             }
@@ -146,6 +149,7 @@ public final class Protocol1_17To1_16_4 extends BackwardsProtocol<ClientboundPac
             public void register() {
                 map(Types.BLOCK_POSITION1_14);
                 handler(wrapper -> {
+                    WorldHeightRewriter1_17.shiftBlockPositionToClient(wrapper, 0);
                     // Angle (which Mojang just forgot to write to the buffer, lol)
                     wrapper.read(Types.FLOAT);
                 });

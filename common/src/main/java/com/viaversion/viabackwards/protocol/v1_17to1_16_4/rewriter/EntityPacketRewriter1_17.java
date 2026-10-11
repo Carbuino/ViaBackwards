@@ -24,16 +24,19 @@ import com.viaversion.nbt.tag.StringTag;
 import com.viaversion.viabackwards.ViaBackwards;
 import com.viaversion.viabackwards.api.rewriters.EntityRewriter;
 import com.viaversion.viabackwards.protocol.v1_17to1_16_4.Protocol1_17To1_16_4;
+import com.viaversion.viaversion.api.minecraft.BlockPosition;
 import com.viaversion.viaversion.api.minecraft.Particle;
 import com.viaversion.viaversion.api.minecraft.entities.EntityType;
 import com.viaversion.viaversion.api.minecraft.entities.EntityTypes1_16_2;
 import com.viaversion.viaversion.api.minecraft.entities.EntityTypes1_17;
 import com.viaversion.viaversion.api.minecraft.entitydata.EntityDataType;
+import com.viaversion.viaversion.api.protocol.packet.PacketWrapper;
 import com.viaversion.viaversion.api.protocol.remapper.PacketHandlers;
 import com.viaversion.viaversion.api.type.Types;
 import com.viaversion.viaversion.api.type.types.version.Types1_16;
 import com.viaversion.viaversion.api.type.types.version.Types1_17;
 import com.viaversion.viaversion.protocols.v1_16_1to1_16_2.packet.ClientboundPackets1_16_2;
+import com.viaversion.viaversion.protocols.v1_16_1to1_16_2.packet.ServerboundPackets1_16_2;
 import com.viaversion.viaversion.protocols.v1_16_4to1_17.packet.ClientboundPackets1_17;
 import com.viaversion.viaversion.util.TagUtil;
 
@@ -51,6 +54,19 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
         registerTracker(ClientboundPackets1_17.ADD_PAINTING, EntityTypes1_17.PAINTING);
         registerTracker(ClientboundPackets1_17.ADD_PLAYER, EntityTypes1_17.PLAYER);
         registerSetEntityData(ClientboundPackets1_17.SET_ENTITY_DATA, Types1_17.ENTITY_DATA_LIST, Types1_16.ENTITY_DATA_LIST);
+
+        protocol.appendClientbound(ClientboundPackets1_17.ADD_ENTITY, wrapper -> shiftEntityY(wrapper, true, true, true));
+        protocol.appendClientbound(ClientboundPackets1_17.ADD_MOB, wrapper -> shiftEntityY(wrapper, true, true, true));
+        protocol.appendClientbound(ClientboundPackets1_17.ADD_EXPERIENCE_ORB, wrapper -> shiftEntityY(wrapper, true, false, false));
+        protocol.appendClientbound(ClientboundPackets1_17.ADD_PLAYER, wrapper -> shiftEntityY(wrapper, true, true, false));
+        protocol.appendClientbound(ClientboundPackets1_17.TELEPORT_ENTITY, wrapper -> shiftEntityY(wrapper, true, false, false));
+        protocol.appendClientbound(ClientboundPackets1_17.MOVE_VEHICLE, wrapper -> shiftEntityY(wrapper, false, false, false));
+        protocol.appendClientbound(ClientboundPackets1_17.ADD_PAINTING, this::shiftPaintingY);
+        protocol.appendClientbound(ClientboundPackets1_17.PLAYER_LOOK_AT, this::shiftPlayerLookAtY);
+
+        protocol.registerServerbound(ServerboundPackets1_16_2.MOVE_PLAYER_POS, EntityPacketRewriter1_17::shiftPlayerYToServer);
+        protocol.registerServerbound(ServerboundPackets1_16_2.MOVE_PLAYER_POS_ROT, EntityPacketRewriter1_17::shiftPlayerYToServer);
+        protocol.registerServerbound(ServerboundPackets1_16_2.MOVE_VEHICLE, EntityPacketRewriter1_17::shiftPlayerYToServer);
 
         protocol.appendClientbound(ClientboundPackets1_17.ADD_ENTITY, wrapper -> {
             final int entityType = wrapper.get(Types.VAR_INT, 1);
@@ -146,6 +162,11 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
                 map(Types.BYTE);
                 map(Types.VAR_INT);
                 read(Types.BOOLEAN); // Dismount vehicle ¯\_(ツ)_/¯
+                handler(wrapper -> {
+                    if ((wrapper.get(Types.BYTE, 0) & 0x02) == 0) {
+                        wrapper.set(Types.DOUBLE, 1, wrapper.get(Types.DOUBLE, 1) - WorldHeightRewriter1_17.worldBaseY());
+                    }
+                });
             }
         });
 
@@ -210,7 +231,12 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
 
         filter().type(EntityTypes1_17.GOAT).cancel(17);
 
-        filter().type(EntityTypes1_17.SHULKER).addIndex(17); // TODO Handle attachment pos?
+        filter().type(EntityTypes1_17.SHULKER).index(17).handler((event, data) -> {
+            if (data.value() instanceof BlockPosition position) {
+                data.setValue(WorldHeightRewriter1_17.toClientPosition(position));
+            }
+        });
+        filter().type(EntityTypes1_17.SHULKER).addIndex(17); // Attachment position is retained at a shifted index
 
         registerBlockStateHandler(EntityTypes1_17.ABSTRACT_MINECART, 11);
 
@@ -231,16 +257,60 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
         return EntityTypes1_17.getTypeFromId(typeId);
     }
 
+    private void shiftEntityY(PacketWrapper wrapper, boolean hasId, boolean hasUuid, boolean hasType) {
+        wrapper.resetReader();
+        if (hasId) {
+            wrapper.passthrough(Types.VAR_INT); // Entity ID
+        }
+        if (hasUuid) {
+            wrapper.passthrough(Types.UUID);
+        }
+        if (hasType) {
+            wrapper.passthrough(Types.VAR_INT); // Entity type
+        }
+        wrapper.passthrough(Types.DOUBLE); // X
+        double y = wrapper.read(Types.DOUBLE);
+        wrapper.write(Types.DOUBLE, y - WorldHeightRewriter1_17.worldBaseY());
+        wrapper.passthroughAll();
+    }
+
+    private void shiftPaintingY(PacketWrapper wrapper) {
+        wrapper.resetReader();
+        wrapper.passthrough(Types.VAR_INT); // Entity ID
+        wrapper.passthrough(Types.UUID);
+        wrapper.passthrough(Types.VAR_INT); // Motive
+        BlockPosition position = wrapper.read(Types.BLOCK_POSITION1_14);
+        wrapper.write(Types.BLOCK_POSITION1_14, WorldHeightRewriter1_17.toClientPosition(position));
+        wrapper.passthroughAll();
+    }
+
+    private void shiftPlayerLookAtY(PacketWrapper wrapper) {
+        wrapper.resetReader();
+        wrapper.passthrough(Types.VAR_INT); // Anchor
+        wrapper.passthrough(Types.DOUBLE); // X
+        double y = wrapper.read(Types.DOUBLE);
+        wrapper.write(Types.DOUBLE, y - WorldHeightRewriter1_17.worldBaseY());
+        wrapper.passthroughAll();
+    }
+
+    private static void shiftPlayerYToServer(PacketWrapper wrapper) {
+        wrapper.passthrough(Types.DOUBLE); // X
+        double y = wrapper.read(Types.DOUBLE);
+        wrapper.write(Types.DOUBLE, y + WorldHeightRewriter1_17.worldBaseY());
+        wrapper.passthroughAll();
+    }
+
     private void reduceExtendedHeight(CompoundTag tag, boolean warn) {
         NumberTag minY = tag.getNumberTag("min_y");
         NumberTag height = tag.getNumberTag("height");
         NumberTag logicalHeight = tag.getNumberTag("logical_height");
         if (minY.asInt() != 0 || height.asInt() > 256 || logicalHeight.asInt() > 256) {
-            if (warn && !warned) {
-                protocol.getLogger().warning("Increased world height is NOT SUPPORTED for 1.16 players and below. They will see a void below y 0 and above 256. You can enable the `bedrock-at-y-0` config option to replace the air with a bedrock layer.");
+            if (warn && !warned && WorldHeightRewriter1_17.worldBaseY() == 0) {
+                protocol.getLogger().warning("Increased world height is only partially visible to 1.16 players and below. Set `1.16-world-base` to choose the server Y shown at client Y=0; `bedrock-at-y-0` can replace that client layer with bedrock.");
                 warned = true;
             }
 
+            tag.putInt("min_y", 0);
             tag.putInt("height", Math.min(256, height.asInt()));
             tag.putInt("logical_height", Math.min(256, logicalHeight.asInt()));
         }

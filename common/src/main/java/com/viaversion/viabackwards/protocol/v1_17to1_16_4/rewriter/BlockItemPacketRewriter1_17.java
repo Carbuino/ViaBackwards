@@ -30,6 +30,7 @@ import com.viaversion.viabackwards.protocol.v1_17_1to1_17.Protocol1_17_1To1_17;
 import com.viaversion.viabackwards.protocol.v1_17_1to1_17.storage.InventoryStateIds;
 import com.viaversion.viabackwards.protocol.v1_17_1to1_17.storage.ProtocolStorables1_17_1;
 import com.viaversion.viaversion.api.Via;
+import com.viaversion.viaversion.api.minecraft.BlockPosition;
 import com.viaversion.viabackwards.protocol.v1_17to1_16_4.storage.PlayerLastCursorItem;
 import com.viaversion.viabackwards.protocol.v1_17to1_16_4.storage.ProtocolStorables1_17;
 import com.viaversion.viaversion.api.data.entity.EntityTracker;
@@ -52,7 +53,6 @@ import com.viaversion.viaversion.rewriter.RecipeRewriter;
 import com.viaversion.viaversion.util.CompactArrayUtil;
 import com.viaversion.viaversion.util.MathUtil;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
 
@@ -69,6 +69,14 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
         new RecipeRewriter<>(protocol).register(ClientboundPackets1_17.UPDATE_RECIPES);
 
         protocol.registerServerbound(ServerboundPackets1_16_2.EDIT_BOOK, wrapper -> handleItemToServer(wrapper.user(), wrapper.passthrough(Types.ITEM1_13_2)));
+        protocol.registerServerbound(ServerboundPackets1_16_2.PLAYER_ACTION, wrapper -> shiftServerboundBlockPosition(wrapper, true));
+        protocol.registerServerbound(ServerboundPackets1_16_2.USE_ITEM_ON, wrapper -> shiftServerboundBlockPosition(wrapper, true));
+        protocol.registerServerbound(ServerboundPackets1_16_2.BLOCK_ENTITY_TAG_QUERY, wrapper -> shiftServerboundBlockPosition(wrapper, true));
+        protocol.registerServerbound(ServerboundPackets1_16_2.SET_COMMAND_BLOCK, wrapper -> shiftServerboundBlockPosition(wrapper, false));
+        protocol.registerServerbound(ServerboundPackets1_16_2.SET_STRUCTURE_BLOCK, wrapper -> shiftServerboundBlockPosition(wrapper, false));
+        protocol.registerServerbound(ServerboundPackets1_16_2.SET_JIGSAW_BLOCK, wrapper -> shiftServerboundBlockPosition(wrapper, false));
+        protocol.registerServerbound(ServerboundPackets1_16_2.JIGSAW_GENERATE, wrapper -> shiftServerboundBlockPosition(wrapper, false));
+        protocol.registerServerbound(ServerboundPackets1_16_2.SIGN_UPDATE, wrapper -> shiftServerboundBlockPosition(wrapper, false));
 
         // TODO Since the carried and modified items are typically set incorrectly, the server sends unnecessary
         // set slot packets after practically every window click, since it thinks the client and server
@@ -216,6 +224,8 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
                     }
                 });
                 handler(protocol.getParticleRewriter().levelParticlesHandler1_13(Types.INT));
+                handler(wrapper -> wrapper.set(Types.DOUBLE, 1,
+                    wrapper.get(Types.DOUBLE, 1) - WorldHeightRewriter1_17.worldBaseY()));
             }
         });
 
@@ -236,7 +246,7 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
                 map(Types.BOOLEAN); // Trust edges
                 handler(wrapper -> {
                     EntityTracker tracker = wrapper.user().getEntityTracker(protocol);
-                    int startFromSection = Math.max(0, -(tracker.currentMinY() >> 4));
+                    int startFromSection = (WorldHeightRewriter1_17.worldBaseY() - tracker.currentMinY()) >> 4;
 
                     long[] skyLightMask = wrapper.read(Types.LONG_ARRAY_PRIMITIVE);
                     long[] blockLightMask = wrapper.read(Types.LONG_ARRAY_PRIMITIVE);
@@ -250,43 +260,27 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
                     wrapper.write(Types.VAR_INT, cutLightMask(emptySkyLightMask, startFromSection));
                     wrapper.write(Types.VAR_INT, cutLightMask(emptyBlockLightMask, startFromSection));
 
-                    writeLightArrays(wrapper, BitSet.valueOf(skyLightMask), cutSkyLightMask, startFromSection, tracker.currentWorldSectionHeight());
-                    writeLightArrays(wrapper, BitSet.valueOf(blockLightMask), cutBlockLightMask, startFromSection, tracker.currentWorldSectionHeight());
+                    writeLightArrays(wrapper, BitSet.valueOf(skyLightMask), cutSkyLightMask, startFromSection);
+                    writeLightArrays(wrapper, BitSet.valueOf(blockLightMask), cutBlockLightMask, startFromSection);
                 });
             }
 
-            private void writeLightArrays(PacketWrapper wrapper, BitSet bitMask, int cutBitMask,
-                                          int startFromSection, int sectionHeight) {
+            private void writeLightArrays(PacketWrapper wrapper, BitSet bitMask, int cutBitMask, int startFromSection) {
                 int packetContentsLength = wrapper.read(Types.VAR_INT);
                 int read = 0;
                 List<byte[]> light = new ArrayList<>();
 
-                // Remove lower bounds
-                for (int i = 0; i < startFromSection; i++) {
-                    if (bitMask.get(i)) {
-                        read++;
-                        wrapper.read(Types.BYTE_ARRAY_PRIMITIVE);
-                    }
-                }
-
-                // Add the important 18 sections
-                for (int i = 0; i < 18; i++) {
-                    if (isSet(cutBitMask, i)) {
-                        read++;
-                        light.add(wrapper.read(Types.BYTE_ARRAY_PRIMITIVE));
-                    }
-                }
-
-                // Remove upper bounds
-                for (int i = startFromSection + 18; i < sectionHeight + 2; i++) {
-                    if (bitMask.get(i)) {
-                        read++;
-                        wrapper.read(Types.BYTE_ARRAY_PRIMITIVE);
+                for (int section = bitMask.nextSetBit(0); section >= 0 && read < packetContentsLength;
+                     section = bitMask.nextSetBit(section + 1)) {
+                    byte[] data = wrapper.read(Types.BYTE_ARRAY_PRIMITIVE);
+                    read++;
+                    int clientSection = section - startFromSection;
+                    if (clientSection >= 0 && clientSection < 18 && isSet(cutBitMask, clientSection)) {
+                        light.add(data);
                     }
                 }
 
                 if (read != packetContentsLength) {
-                    // Read the rest if the server for some reason sends more than are actually consumed
                     for (int i = read; i < packetContentsLength; i++) {
                         wrapper.read(Types.BYTE_ARRAY_PRIMITIVE);
                     }
@@ -309,17 +303,18 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
                 map(Types.LONG); // Chunk pos
                 map(Types.BOOLEAN); // Suppress light updates
                 handler((wrapper) -> {
-                    // Remove sections below y 0 and above 255
                     long chunkPos = wrapper.get(Types.LONG, 0);
-                    int chunkY = (int) (chunkPos << 44 >> 44);
-                    if (chunkY < 0 || chunkY > 15) {
+                    int serverSectionY = (int) (chunkPos << 44 >> 44);
+                    int clientSectionY = serverSectionY - (WorldHeightRewriter1_17.worldBaseY() >> 4);
+                    if (clientSectionY < 0 || clientSectionY > 15) {
                         wrapper.cancel();
                         return;
                     }
+                    wrapper.set(Types.LONG, 0, (chunkPos & ~0xFFFFFL) | ((long) clientSectionY & 0xFFFFF));
 
                     BlockChangeRecord[] records = wrapper.passthrough(Types.VAR_LONG_BLOCK_CHANGE_ARRAY);
                     for (BlockChangeRecord record : records) {
-                        if (ViaBackwards.getConfig().bedrockAtY0() && chunkY == 0 && record.getSectionY() == 0) {
+                        if (ViaBackwards.getConfig().bedrockAtY0() && clientSectionY == 0 && record.getSectionY() == 0) {
                             record.setBlockId(BEDROCK_BLOCK_STATE);
                         } else {
                             record.setBlockId(protocol.getMappingData().getNewBlockStateId(record.getBlockId()));
@@ -335,13 +330,15 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
                 map(Types.BLOCK_POSITION1_14);
                 map(Types.VAR_INT);
                 handler((wrapper) -> {
-                    int y = wrapper.get(Types.BLOCK_POSITION1_14, 0).y();
-                    if (y < 0 || y > 255) {
+                    BlockPosition serverPosition = wrapper.get(Types.BLOCK_POSITION1_14, 0);
+                    int clientY = WorldHeightRewriter1_17.toClientY(serverPosition.y());
+                    if (!WorldHeightRewriter1_17.isClientY(clientY)) {
                         wrapper.cancel();
                         return;
                     }
+                    wrapper.set(Types.BLOCK_POSITION1_14, 0, new BlockPosition(serverPosition.x(), clientY, serverPosition.z()));
 
-                    if (ViaBackwards.getConfig().bedrockAtY0() && y == 0) {
+                    if (ViaBackwards.getConfig().bedrockAtY0() && clientY == 0) {
                         wrapper.set(Types.VAR_INT, 0, BEDROCK_BLOCK_STATE);
                     } else {
                         wrapper.set(Types.VAR_INT, 0, protocol.getMappingData().getNewBlockStateId(wrapper.get(Types.VAR_INT, 0)));
@@ -353,19 +350,32 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
         protocol.registerClientbound(ClientboundPackets1_17.LEVEL_CHUNK, wrapper -> {
             EntityTracker tracker = wrapper.user().getEntityTracker(protocol);
             int currentWorldSectionHeight = tracker.currentWorldSectionHeight();
+            int worldBaseY = WorldHeightRewriter1_17.worldBaseY();
 
             Chunk chunk = wrapper.read(new ChunkType1_17(currentWorldSectionHeight));
             wrapper.write(ChunkType1_16_2.TYPE, chunk);
 
-            // Cut sections
-            int startFromSection = Math.max(0, -(tracker.currentMinY() >> 4));
-            chunk.setBiomeData(Arrays.copyOfRange(chunk.getBiomeData(), startFromSection * 64, (startFromSection * 64) + 1024));
+            int startFromSection = (worldBaseY - tracker.currentMinY()) >> 4;
+            ChunkSection[] sourceSections = chunk.getSections();
+            int[] sourceBiomeData = chunk.getBiomeData();
+            ChunkSection[] sections = new ChunkSection[16];
+            int[] biomeData = new int[16 * 64];
+            for (int section = 0; section < 16; section++) {
+                int sourceSection = startFromSection + section;
+                if (sourceSection >= 0 && sourceSection < sourceSections.length) {
+                    sections[section] = sourceSections[sourceSection];
+                }
 
+                int sourceBiomeIndex = sourceSection * 64;
+                if (sourceBiomeData != null && sourceBiomeIndex >= 0 && sourceBiomeIndex < sourceBiomeData.length) {
+                    System.arraycopy(sourceBiomeData, sourceBiomeIndex, biomeData, section * 64,
+                        Math.min(64, sourceBiomeData.length - sourceBiomeIndex));
+                }
+            }
+            chunk.setSections(sections);
+            chunk.setBiomeData(biomeData);
             chunk.setBitmask(cutMask(chunk.getChunkMask(), startFromSection, false));
             chunk.setChunkMask(null);
-
-            ChunkSection[] sections = Arrays.copyOfRange(chunk.getSections(), startFromSection, startFromSection + 16);
-            chunk.setSections(sections);
 
             CompoundTag heightMaps = chunk.getHeightMap();
             for (Tag heightMapTag : heightMaps.values()) {
@@ -375,8 +385,8 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
 
                 int[] heightMapData = new int[256];
                 int bitsPerEntry = MathUtil.ceilLog2((currentWorldSectionHeight << 4) + 1);
-                // Shift back to 0 based and clamp to normal height with 9 bits
-                CompactArrayUtil.iterateCompactArrayWithPadding(bitsPerEntry, heightMapData.length, heightMap.getValue(), (i, v) -> heightMapData[i] = MathUtil.clamp(v + tracker.currentMinY(), 0, 255));
+                CompactArrayUtil.iterateCompactArrayWithPadding(bitsPerEntry, heightMapData.length, heightMap.getValue(),
+                    (i, v) -> heightMapData[i] = MathUtil.clamp(v + tracker.currentMinY() - worldBaseY, 0, 255));
                 heightMap.setValue(CompactArrayUtil.createCompactArrayWithPadding(9, heightMapData.length, i -> heightMapData[i]));
             }
 
@@ -400,16 +410,22 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
                     return false;
                 }
 
-                final int y = tag.asInt();
-                return y < 0 || y > 255 || (ViaBackwards.getConfig().bedrockAtY0() && y == 0);
+                final int y = WorldHeightRewriter1_17.toClientY(tag.asInt());
+                compound.putInt("y", y);
+                return !WorldHeightRewriter1_17.isClientY(y) || (ViaBackwards.getConfig().bedrockAtY0() && y == 0);
             });
         });
 
         protocol.registerClientbound(ClientboundPackets1_17.BLOCK_ENTITY_DATA, wrapper -> {
-            int y = wrapper.passthrough(Types.BLOCK_POSITION1_14).y();
-            if (y < 0 || y > 255 || (ViaBackwards.getConfig().bedrockAtY0() && y == 0)) {
+            BlockPosition position = wrapper.passthrough(Types.BLOCK_POSITION1_14);
+            int clientY = WorldHeightRewriter1_17.toClientY(position.y());
+            if (!WorldHeightRewriter1_17.isClientY(clientY) || (ViaBackwards.getConfig().bedrockAtY0() && clientY == 0)) {
                 wrapper.cancel();
+                return;
             }
+            wrapper.set(Types.BLOCK_POSITION1_14, 0, new BlockPosition(position.x(), clientY, position.z()));
+            wrapper.passthrough(Types.VAR_INT); // Block entity type
+            shiftBlockEntityY(wrapper.passthrough(Types.NAMED_COMPOUND_TAG));
         });
 
         protocol.registerClientbound(ClientboundPackets1_17.BLOCK_DESTRUCTION, new PacketHandlers() {
@@ -417,13 +433,28 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
             public void register() {
                 map(Types.VAR_INT);
                 handler(wrapper -> {
-                    int y = wrapper.passthrough(Types.BLOCK_POSITION1_14).y();
-                    if (y < 0 || y > 255 || (ViaBackwards.getConfig().bedrockAtY0() && y == 0)) {
+                    BlockPosition position = wrapper.passthrough(Types.BLOCK_POSITION1_14);
+                    int clientY = WorldHeightRewriter1_17.toClientY(position.y());
+                    if (!WorldHeightRewriter1_17.isClientY(clientY) || (ViaBackwards.getConfig().bedrockAtY0() && clientY == 0)) {
                         wrapper.cancel();
+                        return;
                     }
+                    wrapper.set(Types.BLOCK_POSITION1_14, 0, new BlockPosition(position.x(), clientY, position.z()));
                 });
             }
         });
+
+        for (ClientboundPackets1_17 packet : new ClientboundPackets1_17[]{
+            ClientboundPackets1_17.BLOCK_EVENT,
+            ClientboundPackets1_17.BLOCK_BREAK_ACK,
+            ClientboundPackets1_17.LEVEL_EVENT,
+            ClientboundPackets1_17.OPEN_SIGN_EDITOR
+        }) {
+            protocol.appendClientbound(packet, wrapper -> shiftClientboundBlockPosition(wrapper, packet == ClientboundPackets1_17.LEVEL_EVENT));
+        }
+
+        protocol.appendClientbound(ClientboundPackets1_17.SOUND, wrapper -> shiftPositionedSound(wrapper, false));
+        protocol.appendClientbound(ClientboundPackets1_17.CUSTOM_SOUND, wrapper -> shiftPositionedSound(wrapper, true));
 
         protocol.registerClientbound(ClientboundPackets1_17.MAP_ITEM_DATA, new PacketHandlers() {
             @Override
@@ -454,13 +485,66 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
 
     private int cutMask(BitSet mask, int startFromSection, boolean lightMask) {
         int cutMask = 0;
-        // Light masks have a section below and above the 16 main sections
-        int to = startFromSection + (lightMask ? 18 : 16);
-        for (int i = startFromSection, j = 0; i < to; i++, j++) {
-            if (mask.get(i)) {
-                cutMask |= (1 << j);
+        int sectionCount = lightMask ? 18 : 16;
+        for (int clientSection = 0; clientSection < sectionCount; clientSection++) {
+            int serverSection = startFromSection + clientSection;
+            if (serverSection >= 0 && mask.get(serverSection)) {
+                cutMask |= (1 << clientSection);
             }
         }
         return cutMask;
+    }
+
+    private void shiftBlockEntityY(CompoundTag tag) {
+        if (tag == null) {
+            return;
+        }
+        NumberTag yTag = tag.getNumberTag("y");
+        if (yTag != null) {
+            tag.putInt("y", WorldHeightRewriter1_17.toClientY(yTag.asInt()));
+        }
+    }
+
+    private void shiftServerboundBlockPosition(PacketWrapper wrapper, boolean hasLeadingVarInt) {
+        if (hasLeadingVarInt) {
+            wrapper.passthrough(Types.VAR_INT);
+        }
+
+        BlockPosition position = wrapper.read(Types.BLOCK_POSITION1_14);
+        wrapper.write(Types.BLOCK_POSITION1_14, WorldHeightRewriter1_17.toServerPosition(position));
+        wrapper.passthroughAll();
+    }
+
+    private void shiftClientboundBlockPosition(PacketWrapper wrapper, boolean hasLeadingInt) {
+        wrapper.resetReader();
+        if (hasLeadingInt) {
+            wrapper.passthrough(Types.INT);
+        }
+
+        BlockPosition position = wrapper.read(Types.BLOCK_POSITION1_14);
+        int clientY = WorldHeightRewriter1_17.toClientY(position.y());
+        if (!WorldHeightRewriter1_17.isClientY(clientY)
+            || (ViaBackwards.getConfig().bedrockAtY0() && clientY == 0)) {
+            wrapper.cancel();
+            return;
+        }
+
+        wrapper.write(Types.BLOCK_POSITION1_14, new BlockPosition(position.x(), clientY, position.z()));
+        wrapper.passthroughAll();
+    }
+
+    private void shiftPositionedSound(PacketWrapper wrapper, boolean customSound) {
+        wrapper.resetReader();
+        if (customSound) {
+            wrapper.passthrough(Types.STRING);
+            wrapper.passthrough(Types.VAR_INT);
+        } else {
+            wrapper.passthrough(Types.VAR_INT); // Sound ID
+            wrapper.passthrough(Types.VAR_INT); // Source
+        }
+        wrapper.passthrough(Types.INT); // X
+        int y = wrapper.read(Types.INT);
+        wrapper.write(Types.INT, (int) (y - (long) WorldHeightRewriter1_17.worldBaseY() * 8));
+        wrapper.passthroughAll();
     }
 }
