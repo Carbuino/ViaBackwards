@@ -276,7 +276,6 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
             case ADD_ENTITY -> {
                 wrapper.passthrough(Types.BYTE); // Pitch
                 wrapper.passthrough(Types.BYTE); // Yaw
-                wrapper.passthrough(Types.BYTE); // Head yaw
                 wrapper.passthrough(Types.INT); // Object data
                 wrapper.passthrough(Types.SHORT); // Velocity X
                 wrapper.passthrough(Types.SHORT); // Velocity Y
