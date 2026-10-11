@@ -480,7 +480,7 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
                 return;
             }
             wrapper.set(Types.BLOCK_POSITION1_14, 0, new BlockPosition(position.x(), clientY, position.z()));
-            wrapper.passthrough(Types.VAR_INT); // Block entity type
+            wrapper.passthrough(Types.UNSIGNED_BYTE); // Block entity action
             shiftBlockEntityY(wrapper.passthrough(Types.NAMED_COMPOUND_TAG));
         });
 
