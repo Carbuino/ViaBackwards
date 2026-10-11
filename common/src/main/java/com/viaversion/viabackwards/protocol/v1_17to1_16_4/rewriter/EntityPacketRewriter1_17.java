@@ -64,9 +64,9 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
         protocol.appendClientbound(ClientboundPackets1_17.ADD_PAINTING, this::shiftPaintingY);
         protocol.appendClientbound(ClientboundPackets1_17.PLAYER_LOOK_AT, this::shiftPlayerLookAtY);
 
-        protocol.registerServerbound(ServerboundPackets1_16_2.MOVE_PLAYER_POS, EntityPacketRewriter1_17::shiftPlayerYToServer);
-        protocol.registerServerbound(ServerboundPackets1_16_2.MOVE_PLAYER_POS_ROT, EntityPacketRewriter1_17::shiftPlayerYToServer);
-        protocol.registerServerbound(ServerboundPackets1_16_2.MOVE_VEHICLE, EntityPacketRewriter1_17::shiftPlayerYToServer);
+        protocol.registerServerbound(ServerboundPackets1_16_2.MOVE_PLAYER_POS, wrapper -> shiftPlayerYToServer(wrapper, false));
+        protocol.registerServerbound(ServerboundPackets1_16_2.MOVE_PLAYER_POS_ROT, wrapper -> shiftPlayerYToServer(wrapper, true));
+        protocol.registerServerbound(ServerboundPackets1_16_2.MOVE_VEHICLE, wrapper -> shiftPlayerYToServer(wrapper, true));
 
         protocol.appendClientbound(ClientboundPackets1_17.ADD_ENTITY, wrapper -> {
             final int entityType = wrapper.get(Types.VAR_INT, 1);
@@ -293,11 +293,16 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
         wrapper.passthroughAll();
     }
 
-    private static void shiftPlayerYToServer(PacketWrapper wrapper) {
+    private static void shiftPlayerYToServer(PacketWrapper wrapper, boolean hasRotation) {
         wrapper.passthrough(Types.DOUBLE); // X
         double y = wrapper.read(Types.DOUBLE);
         wrapper.write(Types.DOUBLE, y + WorldHeightRewriter1_17.worldBaseY());
-        wrapper.passthroughAll();
+        wrapper.passthrough(Types.DOUBLE); // Z
+        if (hasRotation) {
+            wrapper.passthrough(Types.FLOAT); // Yaw
+            wrapper.passthrough(Types.FLOAT); // Pitch
+        }
+        wrapper.passthrough(Types.BOOLEAN); // On ground
     }
 
     private void reduceExtendedHeight(CompoundTag tag, boolean warn) {

@@ -69,14 +69,70 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
         new RecipeRewriter<>(protocol).register(ClientboundPackets1_17.UPDATE_RECIPES);
 
         protocol.registerServerbound(ServerboundPackets1_16_2.EDIT_BOOK, wrapper -> handleItemToServer(wrapper.user(), wrapper.passthrough(Types.ITEM1_13_2)));
-        protocol.registerServerbound(ServerboundPackets1_16_2.PLAYER_ACTION, wrapper -> shiftServerboundBlockPosition(wrapper, true));
-        protocol.registerServerbound(ServerboundPackets1_16_2.USE_ITEM_ON, wrapper -> shiftServerboundBlockPosition(wrapper, true));
-        protocol.registerServerbound(ServerboundPackets1_16_2.BLOCK_ENTITY_TAG_QUERY, wrapper -> shiftServerboundBlockPosition(wrapper, true));
-        protocol.registerServerbound(ServerboundPackets1_16_2.SET_COMMAND_BLOCK, wrapper -> shiftServerboundBlockPosition(wrapper, false));
-        protocol.registerServerbound(ServerboundPackets1_16_2.SET_STRUCTURE_BLOCK, wrapper -> shiftServerboundBlockPosition(wrapper, false));
-        protocol.registerServerbound(ServerboundPackets1_16_2.SET_JIGSAW_BLOCK, wrapper -> shiftServerboundBlockPosition(wrapper, false));
-        protocol.registerServerbound(ServerboundPackets1_16_2.JIGSAW_GENERATE, wrapper -> shiftServerboundBlockPosition(wrapper, false));
-        protocol.registerServerbound(ServerboundPackets1_16_2.SIGN_UPDATE, wrapper -> shiftServerboundBlockPosition(wrapper, false));
+        protocol.registerServerbound(ServerboundPackets1_16_2.PLAYER_ACTION, wrapper -> {
+            wrapper.passthrough(Types.VAR_INT); // Action
+            shiftServerboundBlockPosition(wrapper);
+            wrapper.passthrough(Types.UNSIGNED_BYTE); // Face
+        });
+        protocol.registerServerbound(ServerboundPackets1_16_2.USE_ITEM_ON, wrapper -> {
+            wrapper.passthrough(Types.VAR_INT); // Hand
+            shiftServerboundBlockPosition(wrapper);
+            wrapper.passthrough(Types.VAR_INT); // Face
+            wrapper.passthrough(Types.FLOAT); // Cursor X
+            wrapper.passthrough(Types.FLOAT); // Cursor Y
+            wrapper.passthrough(Types.FLOAT); // Cursor Z
+            wrapper.passthrough(Types.BOOLEAN); // Inside block
+        });
+        protocol.registerServerbound(ServerboundPackets1_16_2.BLOCK_ENTITY_TAG_QUERY, wrapper -> {
+            wrapper.passthrough(Types.VAR_INT); // Transaction ID
+            shiftServerboundBlockPosition(wrapper);
+        });
+        protocol.registerServerbound(ServerboundPackets1_16_2.SET_COMMAND_BLOCK, wrapper -> {
+            shiftServerboundBlockPosition(wrapper);
+            wrapper.passthrough(Types.STRING); // Command
+            wrapper.passthrough(Types.VAR_INT); // Mode
+            wrapper.passthrough(Types.BYTE); // Flags
+        });
+        protocol.registerServerbound(ServerboundPackets1_16_2.SET_STRUCTURE_BLOCK, wrapper -> {
+            shiftServerboundBlockPosition(wrapper);
+            wrapper.passthrough(Types.VAR_INT); // Action
+            wrapper.passthrough(Types.VAR_INT); // Mode
+            wrapper.passthrough(Types.STRING); // Name
+            wrapper.passthrough(Types.BYTE); // Offset X
+            wrapper.passthrough(Types.BYTE); // Offset Y
+            wrapper.passthrough(Types.BYTE); // Offset Z
+            wrapper.passthrough(Types.BYTE); // Size X
+            wrapper.passthrough(Types.BYTE); // Size Y
+            wrapper.passthrough(Types.BYTE); // Size Z
+            wrapper.passthrough(Types.VAR_INT); // Mirror
+            wrapper.passthrough(Types.VAR_INT); // Rotation
+            wrapper.passthrough(Types.STRING); // Metadata
+            wrapper.passthrough(Types.FLOAT); // Integrity
+            wrapper.passthrough(Types.VAR_LONG); // Seed
+            wrapper.passthrough(Types.BYTE); // Flags
+        });
+        protocol.registerServerbound(ServerboundPackets1_16_2.SET_JIGSAW_BLOCK, wrapper -> {
+            shiftServerboundBlockPosition(wrapper);
+            wrapper.passthrough(Types.STRING); // Name
+            wrapper.passthrough(Types.STRING); // Target
+            wrapper.passthrough(Types.STRING); // Pool
+            wrapper.passthrough(Types.STRING); // Final state
+            wrapper.passthrough(Types.STRING); // Joint type
+            wrapper.passthrough(Types.VAR_INT); // Selection priority
+            wrapper.passthrough(Types.VAR_INT); // Placement priority
+        });
+        protocol.registerServerbound(ServerboundPackets1_16_2.JIGSAW_GENERATE, wrapper -> {
+            shiftServerboundBlockPosition(wrapper);
+            wrapper.passthrough(Types.VAR_INT); // Levels
+            wrapper.passthrough(Types.BOOLEAN); // Keep jigsaws
+        });
+        protocol.registerServerbound(ServerboundPackets1_16_2.SIGN_UPDATE, wrapper -> {
+            shiftServerboundBlockPosition(wrapper);
+            wrapper.passthrough(Types.STRING); // Line 1
+            wrapper.passthrough(Types.STRING); // Line 2
+            wrapper.passthrough(Types.STRING); // Line 3
+            wrapper.passthrough(Types.STRING); // Line 4
+        });
 
         // TODO Since the carried and modified items are typically set incorrectly, the server sends unnecessary
         // set slot packets after practically every window click, since it thinks the client and server
@@ -505,14 +561,9 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
         }
     }
 
-    private void shiftServerboundBlockPosition(PacketWrapper wrapper, boolean hasLeadingVarInt) {
-        if (hasLeadingVarInt) {
-            wrapper.passthrough(Types.VAR_INT);
-        }
-
+    private void shiftServerboundBlockPosition(PacketWrapper wrapper) {
         BlockPosition position = wrapper.read(Types.BLOCK_POSITION1_14);
         wrapper.write(Types.BLOCK_POSITION1_14, WorldHeightRewriter1_17.toServerPosition(position));
-        wrapper.passthroughAll();
     }
 
     private void shiftClientboundBlockPosition(PacketWrapper wrapper, boolean hasLeadingInt) {
