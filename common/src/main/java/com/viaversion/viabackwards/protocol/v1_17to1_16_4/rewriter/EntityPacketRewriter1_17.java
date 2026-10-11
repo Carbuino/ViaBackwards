@@ -55,12 +55,12 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
         registerTracker(ClientboundPackets1_17.ADD_PLAYER, EntityTypes1_17.PLAYER);
         registerSetEntityData(ClientboundPackets1_17.SET_ENTITY_DATA, Types1_17.ENTITY_DATA_LIST, Types1_16.ENTITY_DATA_LIST);
 
-        protocol.appendClientbound(ClientboundPackets1_17.ADD_ENTITY, wrapper -> shiftEntityY(wrapper, true, true, true));
-        protocol.appendClientbound(ClientboundPackets1_17.ADD_MOB, wrapper -> shiftEntityY(wrapper, true, true, true));
-        protocol.appendClientbound(ClientboundPackets1_17.ADD_EXPERIENCE_ORB, wrapper -> shiftEntityY(wrapper, true, false, false));
-        protocol.appendClientbound(ClientboundPackets1_17.ADD_PLAYER, wrapper -> shiftEntityY(wrapper, true, true, false));
-        protocol.appendClientbound(ClientboundPackets1_17.TELEPORT_ENTITY, wrapper -> shiftEntityY(wrapper, true, false, false));
-        protocol.appendClientbound(ClientboundPackets1_17.MOVE_VEHICLE, wrapper -> shiftEntityY(wrapper, false, false, false));
+        protocol.appendClientbound(ClientboundPackets1_17.ADD_ENTITY, wrapper -> shiftEntityY(wrapper, true, true, true, EntityPacketKind.ADD_ENTITY));
+        protocol.appendClientbound(ClientboundPackets1_17.ADD_MOB, wrapper -> shiftEntityY(wrapper, true, true, true, EntityPacketKind.ADD_MOB));
+        protocol.appendClientbound(ClientboundPackets1_17.ADD_EXPERIENCE_ORB, wrapper -> shiftEntityY(wrapper, true, false, false, EntityPacketKind.EXPERIENCE_ORB));
+        protocol.appendClientbound(ClientboundPackets1_17.ADD_PLAYER, wrapper -> shiftEntityY(wrapper, true, true, false, EntityPacketKind.PLAYER));
+        protocol.appendClientbound(ClientboundPackets1_17.TELEPORT_ENTITY, wrapper -> shiftEntityY(wrapper, true, false, false, EntityPacketKind.TELEPORT_ENTITY));
+        protocol.appendClientbound(ClientboundPackets1_17.MOVE_VEHICLE, wrapper -> shiftEntityY(wrapper, false, false, false, EntityPacketKind.MOVE_VEHICLE));
         protocol.appendClientbound(ClientboundPackets1_17.ADD_PAINTING, this::shiftPaintingY);
         protocol.appendClientbound(ClientboundPackets1_17.PLAYER_LOOK_AT, this::shiftPlayerLookAtY);
 
@@ -257,7 +257,7 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
         return EntityTypes1_17.getTypeFromId(typeId);
     }
 
-    private void shiftEntityY(PacketWrapper wrapper, boolean hasId, boolean hasUuid, boolean hasType) {
+    private void shiftEntityY(PacketWrapper wrapper, boolean hasId, boolean hasUuid, boolean hasType, EntityPacketKind packetKind) {
         wrapper.resetReader();
         if (hasId) {
             wrapper.passthrough(Types.VAR_INT); // Entity ID
@@ -271,7 +271,40 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
         wrapper.passthrough(Types.DOUBLE); // X
         double y = wrapper.read(Types.DOUBLE);
         wrapper.write(Types.DOUBLE, y - WorldHeightRewriter1_17.worldBaseY());
-        wrapper.passthroughAll();
+        wrapper.passthrough(Types.DOUBLE); // Z
+        switch (packetKind) {
+            case ADD_ENTITY -> {
+                wrapper.passthrough(Types.BYTE); // Pitch
+                wrapper.passthrough(Types.BYTE); // Yaw
+                wrapper.passthrough(Types.BYTE); // Head yaw
+                wrapper.passthrough(Types.INT); // Object data
+                wrapper.passthrough(Types.SHORT); // Velocity X
+                wrapper.passthrough(Types.SHORT); // Velocity Y
+                wrapper.passthrough(Types.SHORT); // Velocity Z
+            }
+            case ADD_MOB -> {
+                wrapper.passthrough(Types.BYTE); // Yaw
+                wrapper.passthrough(Types.BYTE); // Pitch
+                wrapper.passthrough(Types.BYTE); // Head yaw
+                wrapper.passthrough(Types.SHORT); // Velocity X
+                wrapper.passthrough(Types.SHORT); // Velocity Y
+                wrapper.passthrough(Types.SHORT); // Velocity Z
+            }
+            case EXPERIENCE_ORB -> wrapper.passthrough(Types.SHORT); // Count
+            case PLAYER -> {
+                wrapper.passthrough(Types.BYTE); // Yaw
+                wrapper.passthrough(Types.BYTE); // Pitch
+            }
+            case TELEPORT_ENTITY -> {
+                wrapper.passthrough(Types.BYTE); // Yaw
+                wrapper.passthrough(Types.BYTE); // Pitch
+                wrapper.passthrough(Types.BOOLEAN); // On ground
+            }
+            case MOVE_VEHICLE -> {
+                wrapper.passthrough(Types.FLOAT); // Yaw
+                wrapper.passthrough(Types.FLOAT); // Pitch
+            }
+        }
     }
 
     private void shiftPaintingY(PacketWrapper wrapper) {
@@ -281,7 +314,7 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
         wrapper.passthrough(Types.VAR_INT); // Motive
         BlockPosition position = wrapper.read(Types.BLOCK_POSITION1_14);
         wrapper.write(Types.BLOCK_POSITION1_14, WorldHeightRewriter1_17.toClientPosition(position));
-        wrapper.passthroughAll();
+        wrapper.passthrough(Types.BYTE); // Direction
     }
 
     private void shiftPlayerLookAtY(PacketWrapper wrapper) {
@@ -290,7 +323,12 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
         wrapper.passthrough(Types.DOUBLE); // X
         double y = wrapper.read(Types.DOUBLE);
         wrapper.write(Types.DOUBLE, y - WorldHeightRewriter1_17.worldBaseY());
-        wrapper.passthroughAll();
+        wrapper.passthrough(Types.DOUBLE); // Z
+        boolean isEntity = wrapper.passthrough(Types.BOOLEAN);
+        if (isEntity) {
+            wrapper.passthrough(Types.VAR_INT); // Entity ID
+            wrapper.passthrough(Types.VAR_INT); // Entity anchor
+        }
     }
 
     private static void shiftPlayerYToServer(PacketWrapper wrapper, boolean hasRotation) {
@@ -303,6 +341,15 @@ public final class EntityPacketRewriter1_17 extends EntityRewriter<ClientboundPa
             wrapper.passthrough(Types.FLOAT); // Pitch
         }
         wrapper.passthrough(Types.BOOLEAN); // On ground
+    }
+
+    private enum EntityPacketKind {
+        ADD_ENTITY,
+        ADD_MOB,
+        EXPERIENCE_ORB,
+        PLAYER,
+        TELEPORT_ENTITY,
+        MOVE_VEHICLE
     }
 
     private void reduceExtendedHeight(CompoundTag tag, boolean warn) {

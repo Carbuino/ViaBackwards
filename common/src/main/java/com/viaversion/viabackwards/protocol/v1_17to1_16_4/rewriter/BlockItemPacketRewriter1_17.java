@@ -500,14 +500,14 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
             }
         });
 
-        for (ClientboundPackets1_17 packet : new ClientboundPackets1_17[]{
-            ClientboundPackets1_17.BLOCK_EVENT,
-            ClientboundPackets1_17.BLOCK_BREAK_ACK,
-            ClientboundPackets1_17.LEVEL_EVENT,
-            ClientboundPackets1_17.OPEN_SIGN_EDITOR
-        }) {
-            protocol.appendClientbound(packet, wrapper -> shiftClientboundBlockPosition(wrapper, packet == ClientboundPackets1_17.LEVEL_EVENT));
-        }
+        protocol.appendClientbound(ClientboundPackets1_17.BLOCK_EVENT,
+            wrapper -> shiftClientboundBlockPosition(wrapper, ClientboundPackets1_17.BLOCK_EVENT));
+        protocol.appendClientbound(ClientboundPackets1_17.BLOCK_BREAK_ACK,
+            wrapper -> shiftClientboundBlockPosition(wrapper, ClientboundPackets1_17.BLOCK_BREAK_ACK));
+        protocol.appendClientbound(ClientboundPackets1_17.LEVEL_EVENT,
+            wrapper -> shiftClientboundBlockPosition(wrapper, ClientboundPackets1_17.LEVEL_EVENT));
+        protocol.appendClientbound(ClientboundPackets1_17.OPEN_SIGN_EDITOR,
+            wrapper -> shiftClientboundBlockPosition(wrapper, ClientboundPackets1_17.OPEN_SIGN_EDITOR));
 
         protocol.appendClientbound(ClientboundPackets1_17.SOUND, wrapper -> shiftPositionedSound(wrapper, false));
         protocol.appendClientbound(ClientboundPackets1_17.CUSTOM_SOUND, wrapper -> shiftPositionedSound(wrapper, true));
@@ -566,9 +566,9 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
         wrapper.write(Types.BLOCK_POSITION1_14, WorldHeightRewriter1_17.toServerPosition(position));
     }
 
-    private void shiftClientboundBlockPosition(PacketWrapper wrapper, boolean hasLeadingInt) {
+    private void shiftClientboundBlockPosition(PacketWrapper wrapper, ClientboundPackets1_17 packet) {
         wrapper.resetReader();
-        if (hasLeadingInt) {
+        if (packet == ClientboundPackets1_17.LEVEL_EVENT) {
             wrapper.passthrough(Types.INT);
         }
 
@@ -581,7 +581,16 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
         }
 
         wrapper.write(Types.BLOCK_POSITION1_14, new BlockPosition(position.x(), clientY, position.z()));
-        wrapper.passthroughAll();
+        if (packet == ClientboundPackets1_17.BLOCK_EVENT) {
+            wrapper.passthrough(Types.UNSIGNED_BYTE); // Action
+            wrapper.passthrough(Types.UNSIGNED_BYTE); // Parameter
+            wrapper.passthrough(Types.VAR_INT); // Block type
+        } else if (packet == ClientboundPackets1_17.BLOCK_BREAK_ACK) {
+            wrapper.passthrough(Types.VAR_INT); // Block state
+        } else if (packet == ClientboundPackets1_17.LEVEL_EVENT) {
+            wrapper.passthrough(Types.INT); // Data
+            wrapper.passthrough(Types.BOOLEAN); // Disable relative volume
+        }
     }
 
     private void shiftPositionedSound(PacketWrapper wrapper, boolean customSound) {
@@ -596,6 +605,8 @@ public final class BlockItemPacketRewriter1_17 extends BackwardsItemRewriter<Cli
         wrapper.passthrough(Types.INT); // X
         int y = wrapper.read(Types.INT);
         wrapper.write(Types.INT, (int) (y - (long) WorldHeightRewriter1_17.worldBaseY() * 8));
-        wrapper.passthroughAll();
+        wrapper.passthrough(Types.INT); // Z
+        wrapper.passthrough(Types.FLOAT); // Volume
+        wrapper.passthrough(Types.FLOAT); // Pitch
     }
 }
